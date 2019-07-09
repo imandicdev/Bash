@@ -1,5 +1,10 @@
 #!/bin/bash
 
+if [ $# -eq 0 ]; then
+    echo "No arguments provided. Exiting."
+    exit 1
+fi
+
 seconds=$1
 [ -z "${seconds//[0-9]}" ] && [ -n "$seconds" ] || echo "Seconds should be integer only"
 
