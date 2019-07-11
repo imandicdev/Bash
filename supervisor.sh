@@ -7,9 +7,6 @@ fi
 
 seconds=$1
 [ -z "${seconds//[0-9]}" ] && [ -n "$seconds" ] || echo "Seconds should be integer only"
-
-attempt = 0
-
 max_attempts=$2
 [ -z "${max_attempts//[0-9]}" ] && [ -n "$max_attempts" ] || echo "Maximum attempts should be integer only"
 process=$3
@@ -21,65 +18,22 @@ event_log="supervisor_events.log"
 
 [[ ! -s $event_log ]] && touch $event_log
 
-for (( attempt=$attempt ; ((attempt<$max_attempts)) ; attempt=(($attempt+1)) ))
-do
-        ps aux | grep "$process" | grep -v "grep $process"
-        if [ $? != 0 ]
-        then
-                log_date=$(date)
-                echo
-                echo "$log_date: $process seems down, restarting...">>$event_log
-                echo                                                                                                                                                                                                   sudo systemctl start $process &                                                                                                                                                                                        sleep 2 # Pause to prevent false positives
-        else attempt=$max_attempts
-        fi
-done
-sleep 2
 
-log_errors() {
-ps aux | grep "$process" | grep -v "grep $process"
-if [ $? != 0 ]
-then
-        log_date=$(date)
-        echo
-        echo "$process failed to run after $max_attempts attempts and cannot be restarted" # Failure
-        echo "Closing"
-        echo "$log_date: $process cannot be restarted.">>$event_log # Log failure
-        failure="1" # failure flag
-else
-        log_date=$(date)
-        echo
-        echo "$log_date : $process is running." >> $event_log # all Ok, write to log
-fi
+function retrycommand{
+local n=1
+while true; do
+ "$@" && break || {
+   if [[ $n -lt $max_attempts]]; then
+      ((n++))
+      echo "$process is not runnning,restarting attempt $n of $max_attempts.">>$event_log
+      sleep $seconds;
+   else
+   echo "Restarting has failed after $n attempts">>$event_log
+   exit 1
+  fi
+ }
+done
 }
 
-monitoring_terminated() {
-#  Report script termination
-log_date=$(date)
-echo
-echo "Closing monitor script. Monitoring of $process won't be continued." #Reports closing of monitor script to the user
-echo "$log_date: Monitoring for $process terminated.">>$event_log # Logs termination of script
-
-# kill the script
-kill -9 > /dev/null
-}
-
-# Trap shutdown attempts to enable logging of shutdown trap
-trap 'monitoring_terminated; exit 0' 1 2 3 15
-# Inform user of purpose of script
-clear
-echo
-echo "Supervising $process to ensure that it is running," echo "and attempt to restart it if it is not. If it is unable to"
-echo "restart after $max_attempts, it will log failure and close."
-sleep 2
-#start monitoring
-while [ $failure != "1" ]
-do
-        # start monitoring and attempts max_attempts restarts
-        monitoring_terminated # Reports failure if restart unsuccessful.
-        if [ $failure != "1" ]
-        then
-                sleep $check_interval
-        fi
-done
-monitoring_terminated #Logs script closure
-exit 0
+while true; do
+retrycommand 
